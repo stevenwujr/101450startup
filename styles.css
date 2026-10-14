@@ -316,6 +316,18 @@ canvas {
   display: block;
 }
 
+.live-link {
+  margin: 10px 0 8px;
+}
+
+.live-link a {
+  color: #eaf5ff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: 0.95rem;
+  opacity: 0.96;
+}
+
 @media (max-width: 760px) {
   .page-shell {
     padding-left: 12px;

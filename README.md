@@ -1,5 +1,9 @@
 # 50 Startups Multiple Linear Regression
 
+https://stevenwujr.github.io/101450startup/
+
+![picture](picture.png)
+
 A small interactive web demo for predicting startup profit using multiple linear regression.
 
 ## Project goal
