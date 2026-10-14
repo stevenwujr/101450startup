@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>50 Startups Multiple Linear Regression</title>
+    <meta
+      name="description"
+      content="Interactive dashboard for multiple linear regression on the 50 Startups dataset."
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <nav class="topbar">
+          <div class="brand-block">
+            <span class="brand-mark">ML</span>
+            <span class="brand-text">Startup Profit Model</span>
+          </div>
+          <div class="tag-group">
+            <span class="tag">CRISP-DM</span>
+            <span class="tag">Regression</span>
+            <span class="tag">Kaggle</span>
+          </div>
+        </nav>
+
+        <div class="hero-content">
+          <div class="hero-copy">
+            <p class="eyebrow">MULTIPLE LINEAR REGRESSION</p>
+            <h1>50 Startups Profit Prediction</h1>
+            <p class="subtitle">
+              A predictive model that estimates startup profit using R&D spend,
+              administration, marketing spend, and state-based categorical effects.
+            </p>
+          </div>
+
+          <div class="hero-card">
+            <p class="small-label">Overall performance</p>
+            <div class="score-row">
+              <span class="score-value" id="heroR2">--</span>
+              <span class="score-unit">R²</span>
+            </div>
+            <p class="score-caption">Strong explanatory power on the test set.</p>
+          </div>
+        </div>
+      </header>
+
+      <main class="content-grid">
+        <section class="card stat-card">
+          <div class="card-head">
+            <span class="card-kicker">Model quality</span>
+            <h2>Evaluation Metrics</h2>
+          </div>
+          <div id="metrics" class="metrics-grid"></div>
+        </section>
+
+        <section class="card overview-card">
+          <div class="card-head">
+            <span class="card-kicker">Data summary</span>
+            <h2>Dataset Overview</h2>
+          </div>
+          <div id="dataPreview" class="table-wrap"></div>
+        </section>
+
+        <section class="card wide">
+          <div class="card-head">
+            <span class="card-kicker">Feature impact</span>
+            <h2>Regression Coefficients</h2>
+          </div>
+          <div id="coefficients" class="coeff-grid"></div>
+        </section>
+
+        <section class="card wide chart-card">
+          <div class="card-head split-head">
+            <div>
+              <span class="card-kicker">Prediction check</span>
+              <h2>Actual vs Predicted Profit</h2>
+            </div>
+            <div class="legend-box">
+              <span><i class="dot blue"></i> Prediction</span>
+              <span><i class="dot orange"></i> Ideal fit</span>
+            </div>
+          </div>
+          <canvas id="scatterChart" height="200"></canvas>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
