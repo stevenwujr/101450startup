@@ -1,24 +1,5 @@
-const csvUrl = './50_Startups.csv';
-
-function parseCSV(text) {
-  const lines = text.trim().split(/\r?\n/);
-  const headers = lines[0].split(',');
-  const rows = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-    const values = lines[i].split(',');
-    const row = {};
-    headers.forEach((header, idx) => {
-      const raw = values[idx] ? values[idx].trim() : '';
-      const numericVal = Number(raw);
-      row[header] = Number.isFinite(numericVal) ? numericVal : raw;
-    });
-    rows.push(row);
-  }
-
-  return rows;
-}
+let scatterChartInstance;
+let activeLoadRequest = 0;
 
 function rowsToTable(rows, maxRows = 8) {
   const columns = Object.keys(rows[0] || {});
@@ -26,7 +7,7 @@ function rowsToTable(rows, maxRows = 8) {
 
   let html = '<table><thead><tr>';
   columns.forEach((col) => {
-    html += `<th>${col}</th>`;
+    html += `<th>${window.DatasetUtils.escapeHTML(col)}</th>`;
   });
   html += '</tr></thead><tbody>';
 
@@ -34,7 +15,10 @@ function rowsToTable(rows, maxRows = 8) {
     html += '<tr>';
     columns.forEach((col) => {
       const value = row[col];
-      html += `<td>${typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : value}</td>`;
+      const safeValue = typeof value === 'number'
+        ? value.toLocaleString(undefined, { maximumFractionDigits: 2 })
+        : window.DatasetUtils.escapeHTML(value);
+      html += `<td>${safeValue}</td>`;
     });
     html += '</tr>';
   });
@@ -43,31 +27,22 @@ function rowsToTable(rows, maxRows = 8) {
   return html;
 }
 
-function prepareMatrix(rows) {
-  const states = [...new Set(rows.map((r) => r.State))];
-  const baseState = states[0];
-
-  const featureNames = [
-    'Intercept',
-    'R&D Spend',
-    'Administration',
-    'Marketing Spend',
-    ...states.filter((s) => s !== baseState).map((s) => `State_${s}`),
-  ];
-
-  const X = [];
-  const y = [];
-
-  rows.forEach((row) => {
-    const featureVector = [1, row['R&D Spend'], row['Administration'], row['Marketing Spend']];
-    states.filter((s) => s !== baseState).forEach((stateName) => {
-      featureVector.push(row.State === stateName ? 1 : 0);
-    });
-    X.push(featureVector);
-    y.push(row.Profit);
-  });
-
-  return { X, y, featureNames };
+function splitRows(length) {
+  const indices = Array.from({ length }, (_, index) => index);
+  let value = 42;
+  const random = () => {
+    value += 0x6d2b79f5;
+    let mixed = value;
+    mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
+    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+  for (let index = indices.length - 1; index > 0; index--) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    [indices[index], indices[swapIndex]] = [indices[swapIndex], indices[index]];
+  }
+  const testCount = Math.ceil(length * 0.2);
+  return { train: indices.slice(testCount), test: indices.slice(0, testCount) };
 }
 
 function transpose(matrix) {
@@ -129,20 +104,29 @@ function computeMetrics(yTrue, yPred) {
   return { mae, mse, rmse, r2 };
 }
 
-function fitLinearRegression(rows) {
-  const { X, y, featureNames } = prepareMatrix(rows);
+function fitLinearRegression(rows, features, target) {
+  const split = splitRows(rows.length);
+  const X = split.train.map((index) => [1, ...features.map((feature) => rows[index][feature.key])]);
+  const y = split.train.map((index) => rows[index][target]);
   const Xt = transpose(X);
   const XtX = multiplyMatrix(Xt, X);
   const Xty = multiplyMatrix(Xt, y.map((value) => [value]));
   const b = Xty.map((row) => row[0]);
   const coefficients = solveLinearSystem(XtX, b);
 
-  const yPred = X.map((row) =>
-    row.reduce((sum, value, i) => sum + value * coefficients[i], 0)
-  );
+  const yTrue = split.test.map((index) => rows[index][target]);
+  const yPred = split.test.map((index) => [1, ...features.map((feature) => rows[index][feature.key])]
+    .reduce((sum, value, featureIndex) => sum + value * coefficients[featureIndex], 0));
 
-  const metrics = computeMetrics(y, yPred);
-  return { coefficients, featureNames, metrics, yPred, yTrue: y };
+  const metrics = computeMetrics(yTrue, yPred);
+  return {
+    coefficients,
+    featureNames: ['Intercept', ...features.map((feature) => feature.label)],
+    metrics,
+    yPred,
+    yTrue,
+    split,
+  };
 }
 
 function renderMetrics(metrics) {
@@ -172,7 +156,7 @@ function renderCoefficients(featureNames, coefficients) {
   const html = featureNames
     .map((name, idx) => `
       <div class="coefficient-item">
-        <div class="coefficient-name">${name}</div>
+        <div class="coefficient-name">${window.DatasetUtils.escapeHTML(name)}</div>
         <div class="coefficient-value">${Number(coefficients[idx]).toFixed(4)}</div>
       </div>
     `)
@@ -181,10 +165,13 @@ function renderCoefficients(featureNames, coefficients) {
   container.innerHTML = html;
 }
 
-function renderScatterChart(yTrue, yPred) {
+function renderScatterChart(yTrue, yPred, config) {
   const ctx = document.getElementById('scatterChart');
+  if (scatterChartInstance) scatterChartInstance.destroy();
+  const minValue = Math.min(...yTrue, ...yPred);
+  const maxValue = Math.max(...yTrue, ...yPred);
 
-  new Chart(ctx, {
+  scatterChartInstance = new Chart(ctx, {
     type: 'scatter',
     data: {
       datasets: [
@@ -197,8 +184,8 @@ function renderScatterChart(yTrue, yPred) {
         {
           label: 'Ideal fit',
           data: [
-            { x: Math.min(...yTrue), y: Math.min(...yTrue) },
-            { x: Math.max(...yTrue), y: Math.max(...yTrue) },
+            { x: minValue, y: minValue },
+            { x: maxValue, y: maxValue },
           ],
           type: 'line',
           borderColor: '#f39a5d',
@@ -212,10 +199,10 @@ function renderScatterChart(yTrue, yPred) {
       responsive: true,
       scales: {
         x: {
-          title: { display: true, text: 'Actual Profit' },
+          title: { display: true, text: `Actual ${config.targetLabel} (${config.targetUnit})` },
         },
         y: {
-          title: { display: true, text: 'Predicted Profit' },
+          title: { display: true, text: `Predicted ${config.targetLabel} (${config.targetUnit})` },
         },
       },
       plugins: {
@@ -225,28 +212,64 @@ function renderScatterChart(yTrue, yPred) {
   });
 }
 
-async function loadData() {
+async function loadData(datasetId = 'startups') {
+  const requestId = ++activeLoadRequest;
+  const config = window.DATASET_CONFIGS[datasetId];
+  const status = document.getElementById('selectionStatus');
+  if (status) status.textContent = `Loading ${config.label}…`;
+
   try {
-    const response = await fetch(csvUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch dataset: ${response.status}`);
+    let rawRows;
+    if (config.rows) {
+      rawRows = config.rows.map((row) => ({ ...row }));
+    } else {
+      const response = await fetch(config.file);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch dataset: ${response.status}`);
+      }
+      rawRows = window.DatasetUtils.parseCSV(await response.text());
     }
+    if (requestId !== activeLoadRequest) return;
+    const appendedRows = window.DatasetImport?.getAppendedRows(datasetId) || [];
+    rawRows = rawRows.concat(appendedRows);
+    const { rows, features } = window.DatasetUtils.prepareRows(rawRows, config);
+    document.getElementById('pageTitle').textContent = config.title;
+    document.getElementById('pageSubtitle').textContent = config.subtitle;
+    document.getElementById('scatterTitle').textContent = `Actual vs Predicted ${config.targetLabel}`;
+    document.getElementById('predictionLabel').textContent = `Predicted ${config.targetLabel.toLowerCase()}`;
+    document.getElementById('scoreCaption').textContent = `Held-out test set ${config.targetLabel.toLowerCase()} model performance.`;
+    document.title = `${config.label} Multiple Linear Regression`;
+    document.getElementById('dataPreview').innerHTML = rowsToTable(rawRows, 8);
+    const datasetNote = document.getElementById('datasetNote');
+    datasetNote.textContent = config.note || '';
+    datasetNote.hidden = !config.note;
 
-    const text = await response.text();
-    const rows = parseCSV(text);
-    document.getElementById('dataPreview').innerHTML = rowsToTable(rows, 8);
-
-    const { coefficients, featureNames, metrics, yPred, yTrue } = fitLinearRegression(rows);
+    const { coefficients, featureNames, metrics, yPred, yTrue, split } = fitLinearRegression(
+      rows,
+      features,
+      config.target,
+    );
     renderMetrics(metrics);
     renderCoefficients(featureNames, coefficients);
-    renderScatterChart(yTrue, yPred);
+    renderScatterChart(yTrue, yPred, config);
 
     const heroR2 = document.getElementById('heroR2');
     if (heroR2) heroR2.textContent = Number(metrics.r2).toFixed(4);
+    window.dispatchEvent(new CustomEvent('datasetchange', {
+      detail: { config, rows, rawRows, features, split },
+    }));
   } catch (error) {
+    if (requestId !== activeLoadRequest) return;
     document.getElementById('dataPreview').innerHTML = `<p style="color: red;">${error.message}</p>`;
+    if (status) status.textContent = error.message;
     console.error(error);
   }
 }
 
-window.addEventListener('DOMContentLoaded', loadData);
+window.addEventListener('DOMContentLoaded', () => {
+  const selector = document.getElementById('datasetSelect');
+  selector.addEventListener('change', () => loadData(selector.value));
+  loadData(selector.value);
+});
+
+window.loadDataset = loadData;

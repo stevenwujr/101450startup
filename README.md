@@ -4,7 +4,7 @@ https://stevenwujr.github.io/101450startup/
 
 ![picture](picture.png)
 
-A small interactive web demo for predicting startup profit using multiple linear regression.
+A small interactive web demo for comparing multiple linear regression on 50 Startups and Boston Housing.
 
 ## Project goal
 This project applies the CRISP-DM workflow to the Kaggle 50 Startups dataset and predicts the `Profit` value using the following inputs:
@@ -15,7 +15,7 @@ This project applies the CRISP-DM workflow to the Kaggle 50 Startups dataset and
 - State
 
 ## Model
-The web demo uses a multiple linear regression model with one-hot encoding for the categorical `State` feature.
+The web demo uses a seeded 80/20 train-test split and ordinary least squares. The 50 Startups model one-hot encodes `State` with California as the reference. Boston Housing uses its 13 numeric predictors and predicts `MEDV`, measured in thousands of US dollars. The feature explorer compares Lasso ranking, forward selection, RFE, ElasticNet ranking, and exhaustive subsets from one to five predictors.
 
 ## Files
 
@@ -23,6 +23,10 @@ The web demo uses a multiple linear regression model with one-hot encoding for t
 - `styles.css` — styling
 - `app.js` — regression logic and dashboard rendering
 - `50_Startups.csv` — dataset
+- `BostonHousing.csv` — Boston Housing dataset (506 rows, 13 predictors, and `medv` target)
+- `dataset-config.js` — dataset metadata and shared CSV/feature preparation
+- `dataset-import.js` — CSV upload, schema validation, and browser-local persistence
+- `feature-selection.js` — interactive feature-selection analysis
 - `vercel.json` — Vercel static deployment config
 
 ## Local preview
@@ -54,6 +58,16 @@ The page shows:
 - Mean Absolute Error (MAE)
 - Mean Squared Error (MSE)
 - Root Mean Squared Error (RMSE)
+
+## Importing data
+
+Use **Add data** in the dashboard navigation to either add a CSV as a new dataset or append rows to the currently selected dataset. New datasets require choosing a numeric target column; numeric and low-cardinality categorical predictors are inferred automatically. Keep the expanded predictor count at 13 or fewer, provide complete rows, and use at least five records per category. Constant predictor columns are ignored.
+
+CSV files can be up to 1.5 MB. Appended CSVs must contain the selected dataset's target and predictor columns; header matching ignores capitalization and surrounding spaces. Imported datasets and appended rows are stored in this browser's local storage and are not uploaded to a server. Browser storage limits apply.
+
+## Boston Housing data note
+
+`BostonHousing.csv` is the Boston Housing data mirrored by [selva86/datasets](https://github.com/selva86/datasets/blob/master/BostonHousing.csv). Its `MEDV` target is capped at $50,000, and its `B` predictor is derived from a racially discriminatory census measure. This historical dataset is for education and should not be used for real housing decisions.
 
 ## Notes
 The project is intended for learning and demonstration purposes, especially for showing how multiple linear regression works on a real-world business dataset.

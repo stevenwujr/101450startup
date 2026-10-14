@@ -17,9 +17,16 @@
         <nav class="topbar">
           <div class="brand-block">
             <span class="brand-mark">ML</span>
-            <span class="brand-text">Startup Profit Model</span>
+            <span class="brand-text">Regression Explorer</span>
           </div>
           <div class="tag-group">
+            <label class="dataset-picker" for="datasetSelect">Dataset
+              <select id="datasetSelect" aria-label="Choose dataset">
+                <option value="startups">50 Startups</option>
+                <option value="boston">Boston Housing</option>
+              </select>
+            </label>
+            <button id="openDatasetImport" class="dataset-add-button" type="button" aria-haspopup="dialog">Add data</button>
             <span class="tag">CRISP-DM</span>
             <span class="tag">Regression</span>
             <span class="tag">Kaggle</span>
@@ -29,15 +36,9 @@
         <div class="hero-content">
           <div class="hero-copy">
             <p class="eyebrow">MULTIPLE LINEAR REGRESSION</p>
-            <h1>50 Startups Profit Prediction</h1>
-            <p class="live-link">
-              <a href="https://101450startup.vercel.app" target="_blank" rel="noreferrer">
-                https://101450startup.vercel.app
-              </a>
-            </p>
+            <h1 id="pageTitle">50 Startups Profit Prediction</h1>
             <p class="subtitle">
-              A predictive model that estimates startup profit using R&D spend,
-              administration, marketing spend, and state-based categorical effects.
+              <span id="pageSubtitle">Estimate startup profit from research and development, administration, marketing spend, and state.</span>
             </p>
           </div>
 
@@ -47,10 +48,45 @@
               <span class="score-value" id="heroR2">--</span>
               <span class="score-unit">R²</span>
             </div>
-            <p class="score-caption">Strong explanatory power on the test set.</p>
+            <p class="score-caption" id="scoreCaption">Held-out test set performance.</p>
           </div>
         </div>
       </header>
+
+      <dialog id="datasetDialog" class="dataset-dialog" aria-labelledby="datasetDialogTitle">
+        <div class="dataset-dialog-content">
+          <div class="dataset-dialog-heading">
+            <div>
+              <span class="card-kicker">Local CSV import</span>
+              <h2 id="datasetDialogTitle">Add dataset or rows</h2>
+            </div>
+            <button id="closeDatasetDialog" class="dialog-close" type="button" aria-label="Close import dialog">Close</button>
+          </div>
+          <label class="import-field" for="datasetImportMode">Import as
+            <select id="datasetImportMode">
+              <option value="new">A new dataset</option>
+              <option value="append">Rows for the selected dataset</option>
+            </select>
+          </label>
+          <label class="import-field" for="datasetFile">CSV file
+            <input id="datasetFile" type="file" accept=".csv,text/csv">
+          </label>
+          <label id="newDatasetNameField" class="import-field" for="newDatasetName">Dataset name
+            <input id="newDatasetName" type="text" maxlength="60" placeholder="e.g. House Sales">
+          </label>
+          <label id="targetColumnField" class="import-field" for="datasetTargetColumn" hidden>Prediction target
+            <select id="datasetTargetColumn" disabled></select>
+          </label>
+          <label id="targetUnitField" class="import-field" for="newDatasetTargetUnit" hidden>Target unit
+            <input id="newDatasetTargetUnit" type="text" maxlength="30" value="data units" placeholder="e.g. USD, points">
+          </label>
+          <div id="importStatus" class="import-status" role="status">Choose a CSV file to get started. Imported data stays in this browser.</div>
+          <div class="dataset-dialog-actions">
+            <button id="cancelDatasetImport" class="dialog-cancel" type="button">Cancel</button>
+            <button id="confirmDatasetImport" class="dataset-add-button" type="button" disabled>Import data</button>
+          </div>
+        </div>
+      </dialog>
 
       <main class="content-grid">
         <section class="card stat-card">
@@ -67,6 +103,7 @@
             <h2>Dataset Overview</h2>
           </div>
           <div id="dataPreview" class="table-wrap"></div>
+          <p id="datasetNote" class="dataset-note" hidden></p>
         </section>
 
         <section class="card wide">
@@ -81,7 +118,7 @@
           <div class="card-head split-head">
             <div>
               <span class="card-kicker">Prediction check</span>
-              <h2>Actual vs Predicted Profit</h2>
+              <h2 id="scatterTitle">Actual vs Predicted Profit</h2>
             </div>
             <div class="legend-box">
               <span><i class="dot blue"></i> Prediction</span>
@@ -91,8 +128,80 @@
           <canvas id="scatterChart" height="200"></canvas>
         </section>
       </main>
+
+      <section class="feature-explorer card wide" aria-labelledby="featureExplorerTitle">
+        <div class="card-head selection-heading">
+          <div>
+            <span class="card-kicker">Model comparison</span>
+            <h2 id="featureExplorerTitle">Feature Selection &amp; Parsimony Analysis</h2>
+            <p class="selection-intro">Compare five feature-selection strategies across one to five predictors. Selection uses five-fold cross-validation on the training split; final metrics use the held-out test split.</p>
+          </div>
+          <span id="selectionStatus" class="selection-status" role="status">Loading dataset…</span>
+        </div>
+
+        <div class="selection-control-block">
+          <h3>1. Select feature selection algorithm</h3>
+          <div id="selectionMethods" class="selection-methods" role="group" aria-label="Feature selection algorithm"></div>
+        </div>
+
+        <div class="selection-control-block">
+          <h3>2. Number of features</h3>
+          <div id="featureCounts" class="feature-counts" role="group" aria-label="Number of model features"></div>
+        </div>
+
+        <div class="selection-metrics metrics-grid" aria-label="Selected model metrics">
+          <div class="metric"><span class="metric-label">Test RMSE</span><span id="selectionRmse" class="metric-value">--</span><small>Lower is better</small></div>
+          <div class="metric"><span class="metric-label">Test R²</span><span id="selectionR2" class="metric-value">--</span><small>Explained test variance</small></div>
+          <div class="metric"><span class="metric-label">Adjusted R²</span><span id="selectionAdjustedR2" class="metric-value">--</span><small>Feature-count adjusted</small></div>
+          <div class="metric"><span class="metric-label">Mean absolute error</span><span id="selectionMae" class="metric-value">--</span><small>Average test error</small></div>
+          <div class="metric"><span class="metric-label">Training F-statistic</span><span id="selectionFStatistic" class="metric-value">--</span><small>Overall training-fit statistic</small></div>
+        </div>
+
+        <div class="selection-active-row">
+          <div><strong>Active predictors</strong><div id="selectionActiveFeatures" class="active-features"></div></div>
+          <p>Compact models can generalize better than a model with every available predictor.</p>
+        </div>
+
+        <div class="selection-charts">
+          <section class="selection-chart-panel" aria-labelledby="rmseChartTitle">
+            <div class="selection-subhead"><h3 id="rmseChartTitle">RMSE by number of features</h3><p>Lower is better</p></div>
+            <div class="selection-chart"><canvas id="selectionRmseChart" aria-label="Test RMSE by feature count"></canvas></div>
+          </section>
+          <section class="selection-chart-panel" aria-labelledby="r2ChartTitle">
+            <div class="selection-subhead"><h3 id="r2ChartTitle">R-squared by number of features</h3><p>Higher is better</p></div>
+            <div class="selection-chart"><canvas id="selectionR2Chart" aria-label="Test R-squared by feature count"></canvas></div>
+          </section>
+        </div>
+
+        <section class="selection-equation" aria-labelledby="selectionEquationTitle">
+            <div><span class="card-kicker">Active model</span><h3 id="selectionEquationTitle">Fitted OLS regression equation</h3></div>
+          <p id="selectionEquation">Waiting for model…</p>
+        </section>
+
+        <div class="selection-detail-grid">
+          <section class="selection-detail" aria-labelledby="selectionCoefficientsTitle">
+            <div class="selection-subhead"><h3 id="selectionCoefficientsTitle">Model coefficients &amp; statistical tests</h3><p>Fitted on training data</p></div>
+            <div id="selectionCoefficients" class="selection-table-wrap"></div>
+          </section>
+              <section class="selection-detail" aria-labelledby="predictorTitle">
+            <div class="selection-subhead"><h3 id="predictorTitle">Live predictor</h3><p>Updates with the active model</p></div>
+            <div class="predictor-layout">
+              <div id="predictorControls" class="predictor-controls"></div>
+              <div class="prediction-result"><span id="predictionLabel">Predicted startup profit</span><strong id="predictedProfit">--</strong><small id="predictionFeatures"></small></div>
+            </div>
+          </section>
+        </div>
+
+        <section class="selection-detail residual-detail" aria-labelledby="residualTitle">
+          <div class="selection-subhead"><div><h3 id="residualTitle">Test set residuals &amp; outlier diagnostics</h3><p>Held-out samples sorted by absolute residual</p></div><span class="selection-status">Test split only</span></div>
+          <div id="selectionResiduals" class="selection-table-wrap"></div>
+        </section>
+      </section>
     </div>
 
+    <script src="dataset-config.js"></script>
     <script src="app.js"></script>
+    <script src="dataset-import.js"></script>
+    <script src="feature-selection.js"></script>
   </body>
 </html>
