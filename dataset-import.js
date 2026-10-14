@@ -3,6 +3,7 @@ const appendedRowsStoragePrefix = 'startup-regression:appended:';
 
 let importedCsvRows = null;
 let importFileName = '';
+let importSourceDescription = '';
 
 function importStatus(message, state = '') {
   const status = document.getElementById('importStatus');
@@ -26,14 +27,43 @@ function datasetOption(config) {
   return option;
 }
 
+function datasetNameKey(name) {
+  return String(name).trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+}
+
+function uniqueCustomRecords(records) {
+  if (!Array.isArray(records)) return [];
+  const byName = new Map();
+  const builtInNames = new Set(Object.values(window.DATASET_CONFIGS)
+    .filter((config) => config.file)
+    .map((config) => datasetNameKey(config.label)));
+  records.forEach((record) => {
+    if (!record?.config?.id || !record.config.label || !Array.isArray(record.rows)) return;
+    const key = datasetNameKey(record.config.label);
+    if (!key || builtInNames.has(key)) return;
+    byName.delete(key);
+    byName.set(key, record);
+  });
+  return [...byName.values()];
+}
+
 function restoreCustomDatasets() {
-  const records = storedJson(customDatasetStorageKey, []);
+  const storedRecords = storedJson(customDatasetStorageKey, []);
+  const records = uniqueCustomRecords(Array.isArray(storedRecords) ? storedRecords : []);
+  if (records.length !== storedRecords.length) {
+    localStorage.setItem(customDatasetStorageKey, JSON.stringify(records));
+  }
   const selector = document.getElementById('datasetSelect');
   records.forEach((record) => {
     if (!record?.config?.id || !Array.isArray(record.rows)) return;
     const config = { ...record.config, rows: record.rows };
     window.DATASET_CONFIGS[config.id] = config;
-    selector.append(datasetOption(config));
+    const duplicateOption = [...selector.options].find((option) => option.value === config.id);
+    if (duplicateOption) {
+      duplicateOption.textContent = config.label;
+    } else {
+      selector.append(datasetOption(config));
+    }
   });
   const lastDataset = localStorage.getItem('startup-regression:active-dataset');
   if (lastDataset && window.DATASET_CONFIGS[lastDataset]) {
@@ -49,6 +79,17 @@ function setImportMode() {
   document.getElementById('targetColumnField').hidden = !isNew;
   document.getElementById('targetUnitField').hidden = !isNew;
   validateImportedCsv();
+}
+
+function setImportSource() {
+  const source = document.getElementById('datasetSource').value;
+  const isUrl = source === 'url';
+  document.getElementById('datasetFileField').hidden = isUrl;
+  document.getElementById('datasetUrlField').hidden = !isUrl;
+  importedCsvRows = null;
+  document.getElementById('confirmDatasetImport').disabled = true;
+  validateUrlInput();
+  if (!isUrl) importStatus('Choose a CSV file to load it.');
 }
 
 function validateNewDataset() {
@@ -109,14 +150,15 @@ function targetDefault(numericColumns) {
   return commonTarget || numericColumns[numericColumns.length - 1] || '';
 }
 
-async function readImportFile(file) {
+async function processCsvText(text, sourceName, sourceDescription) {
   importedCsvRows = null;
-  importFileName = file.name;
+  importFileName = sourceName;
+  importSourceDescription = sourceDescription;
   document.getElementById('confirmDatasetImport').disabled = true;
   importStatus('Reading CSV…');
   try {
-    if (file.size > 1_500_000) throw new Error('CSV files must be 1.5 MB or smaller for browser-local storage.');
-    const rows = window.DatasetUtils.parseCSV(await file.text());
+    if (new Blob([text]).size > 1_500_000) throw new Error('CSV files must be 1.5 MB or smaller for browser-local storage.');
+    const rows = window.DatasetUtils.parseCSV(text);
     if (rows.length < 2) throw new Error('Add at least two data rows to the CSV.');
     importedCsvRows = rows;
     const columns = window.DatasetUtils.numericColumns(rows);
@@ -132,7 +174,7 @@ async function readImportFile(file) {
     if (columns.length === 0 && document.getElementById('datasetImportMode').value === 'new') {
       throw new Error('No fully numeric columns were found for the prediction target.');
     }
-    const suggestedName = file.name.replace(/\.csv$/i, '').replace(/[_-]+/g, ' ').trim();
+    const suggestedName = sourceName.replace(/\.csv$/i, '').replace(/[_-]+/g, ' ').trim();
     const nameInput = document.getElementById('newDatasetName');
     if (!nameInput.value.trim() || nameInput.dataset.fileDerived === 'true') {
       nameInput.value = suggestedName || 'Imported dataset';
@@ -146,11 +188,75 @@ async function readImportFile(file) {
   }
 }
 
+async function readImportFile(file) {
+  try {
+    if (file.size > 1_500_000) throw new Error('CSV files must be 1.5 MB or smaller for browser-local storage.');
+    await processCsvText(await file.text(), file.name, `file: ${file.name}`);
+  } catch (error) {
+    importedCsvRows = null;
+    importStatus(error.message, 'error');
+    document.getElementById('confirmDatasetImport').disabled = true;
+  }
+}
+
+function validateUrlInput() {
+  const urlInput = document.getElementById('datasetUrl');
+  const loadButton = document.getElementById('loadDatasetUrl');
+  let valid = false;
+  try {
+    const url = new URL(urlInput.value.trim());
+    valid = ['http:', 'https:'].includes(url.protocol)
+      && !url.username
+      && !url.password
+      && url.href.length <= 2048;
+  } catch {
+    valid = false;
+  }
+  loadButton.disabled = !valid;
+  return valid;
+}
+
+async function readImportUrl() {
+  if (!validateUrlInput()) {
+    importStatus('Enter a valid public HTTP or HTTPS CSV URL.', 'error');
+    return;
+  }
+  const url = new URL(document.getElementById('datasetUrl').value.trim());
+  document.getElementById('loadDatasetUrl').disabled = true;
+  importedCsvRows = null;
+  document.getElementById('confirmDatasetImport').disabled = true;
+  importStatus('Fetching CSV URL…');
+  try {
+    const response = await fetch(url.href, { headers: { Accept: 'text/csv,text/plain,*/*' } });
+    if (!response.ok) throw new Error(`CSV request failed (${response.status} ${response.statusText}).`);
+    const text = await response.text();
+    if (new Blob([text]).size > 1_500_000) {
+      throw new Error('CSV responses must be 1.5 MB or smaller for browser-local storage.');
+    }
+    const lastPathPart = decodeURIComponent(url.pathname.split('/').filter(Boolean).pop() || 'remote-dataset.csv');
+    const sourceName = lastPathPart.toLowerCase().endsWith('.csv') ? lastPathPart : `${lastPathPart}.csv`;
+    await processCsvText(text, sourceName, url.href);
+  } catch (error) {
+    importedCsvRows = null;
+    const isCorsFailure = error instanceof TypeError;
+    importStatus(isCorsFailure
+      ? 'Could not read this URL. The server may block browser CORS requests; use a GitHub Raw URL or upload the CSV file instead.'
+      : error.message, 'error');
+    document.getElementById('confirmDatasetImport').disabled = true;
+  } finally {
+    validateUrlInput();
+  }
+}
+
 function persistNewDataset() {
   const target = document.getElementById('datasetTargetColumn').value;
   const features = window.DatasetUtils.inferFeatures(importedCsvRows, target);
   const label = document.getElementById('newDatasetName').value.trim();
-  const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const records = uniqueCustomRecords(storedJson(customDatasetStorageKey, []));
+  const existingIndex = records.findIndex((record) => datasetNameKey(record.config.label) === datasetNameKey(label));
+  const existingRecord = existingIndex >= 0 ? records[existingIndex] : null;
+  const id = existingRecord?.config.id
+    || `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const config = {
     id,
     label,
@@ -160,15 +266,30 @@ function persistNewDataset() {
     targetLabel: target,
     targetUnit: document.getElementById('newDatasetTargetUnit').value.trim() || 'data units',
     sampleLabel: 'Sample',
-    note: `Imported from ${importFileName}; stored locally in this browser.`,
+    note: `Imported from ${importSourceDescription || importFileName}; stored locally in this browser.`,
     features,
   };
-  const records = storedJson(customDatasetStorageKey, []);
   const record = { config, rows: importedCsvRows };
-  localStorage.setItem(customDatasetStorageKey, JSON.stringify([...records, record]));
+  if (existingIndex >= 0) {
+    records[existingIndex] = record;
+    importStatus(`Updated existing dataset "${label}" with ${importedCsvRows.length} rows.`, 'success');
+  } else {
+    records.push(record);
+  }
+  localStorage.setItem(customDatasetStorageKey, JSON.stringify(records));
   window.DATASET_CONFIGS[id] = { ...config, rows: importedCsvRows };
   const selector = document.getElementById('datasetSelect');
-  selector.append(datasetOption(config));
+  [...selector.options].forEach((option) => {
+    if (option.value !== id && datasetNameKey(option.textContent) === datasetNameKey(label)) {
+      option.remove();
+    }
+  });
+  const existingOption = [...selector.options].find((option) => option.value === id);
+  if (existingOption) {
+    existingOption.textContent = label;
+  } else {
+    selector.append(datasetOption(config));
+  }
   selector.value = id;
   localStorage.setItem('startup-regression:active-dataset', id);
   window.loadDataset(id);
@@ -196,6 +317,7 @@ function handleImport() {
     document.getElementById('datasetDialog').close();
     importedCsvRows = null;
     document.getElementById('datasetFile').value = '';
+    document.getElementById('datasetUrl').value = '';
     document.getElementById('confirmDatasetImport').disabled = true;
   } catch (error) {
     importStatus(`Could not save the imported data: ${error.message}`, 'error');
@@ -212,10 +334,12 @@ window.DatasetImport = {
 window.addEventListener('DOMContentLoaded', () => {
   const dialog = document.getElementById('datasetDialog');
   const fileInput = document.getElementById('datasetFile');
+  const urlInput = document.getElementById('datasetUrl');
   const nameInput = document.getElementById('newDatasetName');
   const targetSelect = document.getElementById('datasetTargetColumn');
   restoreCustomDatasets();
   setImportMode();
+  setImportSource();
 
   document.getElementById('datasetSelect').addEventListener('change', (event) => {
     localStorage.setItem('startup-regression:active-dataset', event.target.value);
@@ -228,10 +352,13 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('closeDatasetDialog').addEventListener('click', () => dialog.close());
   document.getElementById('cancelDatasetImport').addEventListener('click', () => dialog.close());
   document.getElementById('datasetImportMode').addEventListener('change', setImportMode);
+  document.getElementById('datasetSource').addEventListener('change', setImportSource);
   fileInput.addEventListener('change', () => {
     const [file] = fileInput.files;
     if (file) readImportFile(file);
   });
+  urlInput.addEventListener('input', validateUrlInput);
+  document.getElementById('loadDatasetUrl').addEventListener('click', readImportUrl);
   targetSelect.addEventListener('change', validateImportedCsv);
   document.getElementById('newDatasetTargetUnit').addEventListener('input', validateImportedCsv);
   nameInput.addEventListener('input', () => {

@@ -57,7 +57,7 @@
         <div class="dataset-dialog-content">
           <div class="dataset-dialog-heading">
             <div>
-              <span class="card-kicker">Local CSV import</span>
+              <span class="card-kicker">CSV import</span>
               <h2 id="datasetDialogTitle">Add dataset or rows</h2>
             </div>
             <button id="closeDatasetDialog" class="dialog-close" type="button" aria-label="Close import dialog">Close</button>
@@ -68,9 +68,20 @@
               <option value="append">Rows for the selected dataset</option>
             </select>
           </label>
-          <label class="import-field" for="datasetFile">CSV file
+          <label class="import-field" for="datasetSource">CSV source
+            <select id="datasetSource">
+              <option value="file">Upload CSV file</option>
+              <option value="url">CSV URL</option>
+            </select>
+          </label>
+          <label id="datasetFileField" class="import-field" for="datasetFile">CSV file
             <input id="datasetFile" type="file" accept=".csv,text/csv">
           </label>
+          <div id="datasetUrlField" class="import-field" hidden>
+            <label for="datasetUrl">CSV URL</label>
+            <input id="datasetUrl" type="url" inputmode="url" placeholder="https://raw.githubusercontent.com/.../data.csv" autocomplete="url">
+            <button id="loadDatasetUrl" class="dialog-cancel" type="button" disabled>Load CSV</button>
+          </div>
           <label id="newDatasetNameField" class="import-field" for="newDatasetName">Dataset name
             <input id="newDatasetName" type="text" maxlength="60" placeholder="e.g. House Sales">
           </label>
